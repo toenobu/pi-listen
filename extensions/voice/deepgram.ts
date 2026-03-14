@@ -4,6 +4,7 @@
  */
 
 import type { VoiceConfig } from "./config";
+import { modelForLanguage } from "./onboarding";
 
 export const DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen";
 export const SAMPLE_RATE = 16000;
@@ -11,14 +12,16 @@ export const CHANNELS = 1;
 export const ENCODING = "linear16";
 
 export function buildDeepgramWsUrl(config: VoiceConfig): string {
+	const language = config.language || "en";
+	const model = modelForLanguage(language);
 	const params = new URLSearchParams({
 		encoding: ENCODING,
 		sample_rate: String(SAMPLE_RATE),
 		channels: String(CHANNELS),
 		endpointing: "200",
 		utterance_end_ms: "1000",
-		language: config.language || "en",
-		model: "nova-3",
+		language,
+		model,
 		smart_format: "true",
 		interim_results: "true",
 	});

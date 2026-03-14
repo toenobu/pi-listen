@@ -76,7 +76,7 @@ import {
 	type VoiceConfig,
 	type VoiceSettingsScope,
 } from "./voice/config";
-import { finalizeOnboardingConfig, runVoiceOnboarding } from "./voice/onboarding";
+import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName, modelForLanguage } from "./voice/onboarding";
 import { detectVoiceCommand, processVoiceShortcuts } from "./voice/text-processing";
 import { buildDeepgramWsUrl, resolveDeepgramApiKey, SAMPLE_RATE, CHANNELS } from "./voice/deepgram";
 
@@ -156,6 +156,8 @@ function updateAudioLevel(chunk: Buffer) {
 	audioLevelSmoothed = audioLevel > audioLevelSmoothed
 		? audioLevelSmoothed * 0.35 + audioLevel * 0.65
 		: audioLevelSmoothed * 0.75 + audioLevel * 0.25;
+	// Broadcast for other extensions (e.g. pi-pompom mouth animation)
+	(globalThis as any).__piVoiceAudioLevel = audioLevelSmoothed;
 }
 
 function voiceDebug(...args: unknown[]) {
@@ -587,7 +589,6 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx?.hasUI) return false;
 
 		if (action === "__UNDO__") {
-			// Remove last word from editor
 			const text = ctx.ui.getEditorText() || "";
 			const words = text.trim().split(/\s+/);
 			words.pop();
@@ -602,97 +603,13 @@ export default function (pi: ExtensionAPI) {
 			return true;
 		}
 
-		if (action === "__SELECT_ALL__") {
-			// Can't truly select-all in the editor, but useful feedback
-			ctx.ui.notify("(Select all not available in terminal editor)", "info");
-			return true;
-		}
-
 		if (action === "__NEWLINE__") {
 			const text = ctx.ui.getEditorText() || "";
 			ctx.ui.setEditorText(text + "\n");
 			return true;
 		}
 
-		if (action === "__SUBMIT__") {
-			// Simulate Enter — send the editor text as a message
-			const text = (ctx.ui.getEditorText() || "").trim();
-			if (text) {
-				pi.sendUserMessage(text);
-				ctx.ui.setEditorText("");
-				ctx.ui.notify("✓ Submitted via voice", "info");
-			}
-			return true;
-		}
-
-		if (action.startsWith("__SEARCH__")) {
-			const query = action.slice("__SEARCH__".length);
-			ctx.ui.setEditorText(`search for ${query}`);
-			ctx.ui.notify(`🔍 Search: ${query}`, "info");
-			return true;
-		}
-
-		if (action.startsWith("__MESSAGE__")) {
-			const msg = action.slice("__MESSAGE__".length);
-			pi.sendUserMessage(msg);
-			ctx.ui.setEditorText("");
-			ctx.ui.notify("✓ Sent to agent via voice", "info");
-			return true;
-		}
-
-		if (action === "__STOP__") {
-			// Simulate Escape — interrupt the agent
-			ctx.ui.notify("⏹ Interrupted via voice", "info");
-			return true;
-		}
-
-		// Pi slash commands — /new, /compact, /fork, /resume, /tree, /reload, /settings
-		if (action.startsWith("__SLASH__")) {
-			const cmd = action.slice("__SLASH__".length);
-			pi.sendUserMessage(`/${cmd}`);
-			ctx.ui.setEditorText("");
-			ctx.ui.notify(`/${cmd}`, "info");
-			return true;
-		}
-
-		// Pi keybinding actions — selectModel, cycleModelForward, toggleThinking, etc.
-		if (action.startsWith("__KEY__")) {
-			const keyAction = action.slice("__KEY__".length);
-			// These map to Pi's keybinding actions. We simulate by sending
-			// the slash command equivalent since we can't trigger keybindings directly.
-			const keyToSlash: Record<string, string> = {
-				selectModel: "/model",
-				cycleModelForward: "/model",
-				cycleModelBackward: "/model",
-				cycleThinkingLevel: "/thinking",
-				toggleThinking: "/thinking",
-				expandTools: "/tools",
-				externalEditor: "/editor",
-			};
-			const slash = keyToSlash[keyAction];
-			if (slash) {
-				pi.sendUserMessage(slash);
-				ctx.ui.setEditorText("");
-				ctx.ui.notify(slash, "info");
-			} else {
-				ctx.ui.notify(`Voice: ${keyAction}`, "info");
-			}
-			return true;
-		}
-
-		// "switch to claude sonnet" → set model directly
-		if (action.startsWith("__MODEL__")) {
-			const modelName = action.slice("__MODEL__".length);
-			pi.sendUserMessage(`/model ${modelName}`);
-			ctx.ui.setEditorText("");
-			ctx.ui.notify(`Switching model: ${modelName}`, "info");
-			return true;
-		}
-
-		// Shell command — put in editor for user to review
-		ctx.ui.setEditorText(action);
-		ctx.ui.notify(`🎤 Voice command: ${action}`, "info");
-		return true;
+		return false;
 	}
 
 	// ─── Sound Feedback ──────────────────────────────────────────────────────
@@ -756,6 +673,8 @@ export default function (pi: ExtensionAPI) {
 		if (prev !== newState) {
 			voiceDebug(`STATE: ${prev} → ${newState}`);
 		}
+		// Broadcast to other extensions (e.g. pi-pompom mouth animation)
+		(globalThis as any).__piVoiceRecording = newState === "recording";
 		updateVoiceStatus();
 	}
 
@@ -1879,13 +1798,13 @@ export default function (pi: ExtensionAPI) {
 					"  Hold SPACE → release to transcribe",
 					"  Ctrl+Shift+V → toggle recording on/off",
 					"  Quick SPACE tap → types a space (no voice)",
+					"  Escape × 2 → clear editor",
+					"",
+					"  /voice-language → change language (56+ supported)",
 					"  /voice dictate  → continuous mode (no hold)",
-					"  /voice history  → recent transcriptions",
+					"  /voice test     → verify setup",
 					"",
-					"  Voice commands: 'hey pi, run tests' → auto-executes",
-					"  Shortcuts: 'new line', 'period', 'submit'",
-					"",
-					"  Live transcription shown while speaking",
+					"  Say 'undo', 'clear', 'new line', 'period' during dictation",
 				].join("\n"), "info");
 				return;
 			}
@@ -2073,6 +1992,27 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			// /voice language — fuzzy search picker for 58+ languages
+			if (sub === "language" || sub === "lang") {
+				const langCode = await pickLanguage(cmdCtx, config.language);
+				if (langCode) {
+					config.language = langCode;
+					saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+					const model = modelForLanguage(langCode);
+					cmdCtx.ui.notify(`Language: ${languageDisplayName(langCode)}\nModel: ${model}`, "info");
+				}
+				return;
+			}
+			// /voice language <code> — direct set without picker
+			if (sub.startsWith("language ") || sub.startsWith("lang ")) {
+				const langCode = sub.replace(/^lang(uage)?\s+/, "").trim();
+				config.language = langCode;
+				saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+				const model = modelForLanguage(langCode);
+					cmdCtx.ui.notify(`Language: ${languageDisplayName(langCode)}\nModel: ${model}`, "info");
+				return;
+			}
+
 			if (sub === "info") {
 				const dgKey = resolveDeepgramApiKey(config);
 				cmdCtx.ui.notify([
@@ -2122,6 +2062,61 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			await finalizeAndSaveSetup(cmdCtx, result.config, result.selectedScope, result.summaryLines, "setup-command");
+		},
+	});
+
+	// ─── /voice-language — dedicated language picker ────────────────────────
+
+	pi.registerCommand("voice-language", {
+		description: "Change voice transcription language (56+ supported)",
+		handler: async (args, cmdCtx) => {
+			ctx = cmdCtx;
+			// Direct set: /voice-language hi
+			const direct = (args || "").trim().toLowerCase();
+			if (direct) {
+				config.language = direct;
+				saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+				const model = modelForLanguage(direct);
+				cmdCtx.ui.notify(`Language: ${languageDisplayName(direct)}\nModel: ${model}`, "info");
+				return;
+			}
+			// Fuzzy picker
+			const langCode = await pickLanguage(cmdCtx, config.language);
+			if (langCode) {
+				config.language = langCode;
+				saveConfig(config, config.scope === "project" ? "project" : "global", currentCwd);
+				const model = modelForLanguage(langCode);
+				cmdCtx.ui.notify(`Language: ${languageDisplayName(langCode)}\nModel: ${model}`, "info");
+			}
+		},
+	});
+
+	// ─── /voice-settings — show current config ─────────────────────────────
+
+	pi.registerCommand("voice-settings", {
+		description: "Show voice configuration and settings",
+		handler: async (_args, cmdCtx) => {
+			ctx = cmdCtx;
+			const dgKey = resolveDeepgramApiKey(config);
+			const model = modelForLanguage(config.language);
+			cmdCtx.ui.notify([
+				"Voice settings:",
+				"",
+				`  enabled:     ${config.enabled}`,
+				`  language:    ${languageDisplayName(config.language)}`,
+				`  model:       ${model}`,
+				`  scope:       ${config.scope}`,
+				`  api key:     ${dgKey ? "set (" + dgKey.slice(0, 8) + "…)" : "NOT SET"}`,
+				`  onboarding:  ${config.onboarding.completed ? "complete" : "incomplete"}`,
+				`  state:       ${voiceState}`,
+				`  kitty:       ${kittyReleaseDetected ? "yes" : "no"}`,
+				"",
+				"Commands:",
+				"  /voice-setup      Reconfigure (API key, language, scope)",
+				"  /voice-language   Change language (56+ supported)",
+				"  /voice test       Run diagnostics",
+				"  /voice on|off     Enable/disable",
+			].join("\n"), "info");
 		},
 	});
 
