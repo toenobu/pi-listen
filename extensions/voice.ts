@@ -1711,7 +1711,7 @@ export default function (pi: ExtensionAPI) {
 						"  Hold SPACE to record, release to transcribe.",
 						"  Requires a Deepgram API key ($200 free credit).",
 						"",
-						"  Run /voice setup to get started.",
+						"  Run /voice-setup or /voice setup to get started.",
 					].join("\n"), "info");
 				}
 			}
@@ -1916,7 +1916,7 @@ export default function (pi: ExtensionAPI) {
 					lines.push("  Setup needed:");
 					lines.push("    1. Get a free key → https://dpgr.am/pi-voice ($200 free credit)");
 					lines.push("    2. export DEEPGRAM_API_KEY=\"your-key\" (add to ~/.zshrc)");
-					lines.push("    3. Or run /voice setup to paste it interactively");
+					lines.push("    3. Or run /voice-setup to paste it interactively");
 				} else if (!hasSox) {
 					lines.push("  Setup needed:");
 					lines.push("    brew install sox    # macOS");
