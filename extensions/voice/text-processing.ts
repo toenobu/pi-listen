@@ -96,7 +96,10 @@ const VOICE_COMMAND_MAP: Record<string, (args: string) => string> = {
 	"show tools": () => "__KEY__expandTools",
 	"hide tools": () => "__KEY__expandTools",
 
-	// ── Settings shortcuts ──
+	// ── Editor & settings ──
+	"open editor": () => "__KEY__externalEditor",
+	"external editor": () => "__KEY__externalEditor",
+	"vim": () => "__KEY__externalEditor",
 	"open settings": () => "__SLASH__settings",
 	"settings": () => "__SLASH__settings",
 };

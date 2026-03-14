@@ -667,6 +667,7 @@ export default function (pi: ExtensionAPI) {
 				cycleThinkingLevel: "/thinking",
 				toggleThinking: "/thinking",
 				expandTools: "/tools",
+				externalEditor: "/editor",
 			};
 			const slash = keyToSlash[keyAction];
 			if (slash) {
