@@ -77,7 +77,6 @@ import {
 	type VoiceSettingsScope,
 } from "./voice/config";
 import { finalizeOnboardingConfig, runVoiceOnboarding, pickLanguage, languageDisplayName, modelForLanguage } from "./voice/onboarding";
-import { detectVoiceCommand, processVoiceShortcuts } from "./voice/text-processing";
 import { buildDeepgramWsUrl, resolveDeepgramApiKey, SAMPLE_RATE, CHANNELS } from "./voice/deepgram";
 
 
@@ -586,35 +585,6 @@ export default function (pi: ExtensionAPI) {
 
 	let dictationMode = false;
 
-	// ─── Voice Command Execution ─────────────────────────────────────────────
-
-	function executeVoiceCommand(action: string): boolean {
-		if (!ctx?.hasUI) return false;
-
-		if (action === "__UNDO__") {
-			const text = ctx.ui.getEditorText() || "";
-			const words = text.trim().split(/\s+/);
-			words.pop();
-			ctx.ui.setEditorText(words.join(" ") + (words.length ? " " : ""));
-			ctx.ui.notify("↩ Undo last word", "info");
-			return true;
-		}
-
-		if (action === "__CLEAR__") {
-			ctx.ui.setEditorText("");
-			ctx.ui.notify("Cleared editor", "info");
-			return true;
-		}
-
-		if (action === "__NEWLINE__") {
-			const text = ctx.ui.getEditorText() || "";
-			ctx.ui.setEditorText(text + "\n");
-			return true;
-		}
-
-		return false;
-	}
-
 	// ─── Sound Feedback ──────────────────────────────────────────────────────
 
 	// Pre-resolve sound paths once at load time (not per-play)
@@ -1015,26 +985,13 @@ export default function (pi: ExtensionAPI) {
 				hideWidget();
 
 				if (ctx?.hasUI) {
-					// Check for voice commands first
-					const cmd = detectVoiceCommand(fullText);
-					if (cmd.isCommand && cmd.action) {
-						executeVoiceCommand(cmd.action);
-						playSound("stop");
-						addToHistory(fullText, (Date.now() - recordingStart) / 1000);
-						setVoiceState("idle");
-						return;
-					}
-
-					// Process voice shortcuts (new line, period, etc.)
-					const processedText = processVoiceShortcuts(fullText);
-
 					// The editor already has the live transcript via updateLiveTranscriptWidget.
 					// Only set final text if the editor still has content.
 					// If user already hit Enter (editor cleared), don't re-insert.
-					const currentEditorText = ctx.ui.getEditorText() ?? "";
+					const currentEditorText = ctx.ui.getEditorText?.() ?? "";
 					if (currentEditorText.trim()) {
 						const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
-						ctx.ui.setEditorText(prefix + processedText);
+						ctx.ui.setEditorText(prefix + fullText);
 					}
 					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
 					addToHistory(fullText, parseFloat(elapsed));
