@@ -150,7 +150,7 @@ interface VoiceConfig {
 ## Setup
 
 ```bash
-command pi install npm:@codexstar/pi-listen   # Install extension
+pi install npm:@codexstar/pi-listen   # Install extension
 brew install sox                               # Microphone capture
 export DEEPGRAM_API_KEY="your-key"            # https://dpgr.am/pi-voice
 ```

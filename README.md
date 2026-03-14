@@ -17,7 +17,7 @@
 
 ```bash
 # In a regular terminal (not inside Pi)
-command pi install npm:@codexstar/pi-listen
+pi install npm:@codexstar/pi-listen
 ```
 
 ### 2. Install SoX (microphone capture)

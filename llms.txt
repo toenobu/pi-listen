@@ -8,7 +8,7 @@ pi-listen adds streaming voice-to-text input to Pi. Hold SPACE to record, releas
 
 ## Setup
 
-1. `command pi install npm:@codexstar/pi-listen` (outside Pi)
+1. `pi install npm:@codexstar/pi-listen` (outside Pi)
 2. `brew install sox` (or apt/choco)
 3. Get key at https://dpgr.am/pi-voice ($200 free credit)
 4. `export DEEPGRAM_API_KEY="your-key"` in ~/.zshrc
@@ -44,5 +44,5 @@ pi-listen adds streaming voice-to-text input to Pi. Hold SPACE to record, releas
 ## Installation
 
 ```
-command pi install npm:@codexstar/pi-listen
+pi install npm:@codexstar/pi-listen
 ```
