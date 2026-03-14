@@ -529,6 +529,169 @@ function abortSession(session: StreamingSession | null): void {
 	try { session.recProcess.kill("SIGKILL"); } catch {}
 }
 
+// ─── Mac Speech Backend (local macOS Speech Recognition) ────────────────────
+
+interface MacSpeechSession {
+	recProcess: ChildProcess;
+	tempAudioPath: string;
+	closed: boolean;
+	hadAudioData: boolean;
+	onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
+	onError: (err: string) => void;
+}
+
+function getMacSpeechBinaryPath(): string {
+	// The Swift binary is compiled alongside the extension
+	return path.join(path.dirname(__filename), "..", "scripts", "macspeech");
+}
+
+function startMacSpeechSession(
+	config: VoiceConfig,
+	callbacks: {
+		onRecording: () => void;
+		onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => void;
+		onError: (err: string) => void;
+	},
+): MacSpeechSession | null {
+	voiceDebug("startMacSpeechSession", { language: config.language });
+
+	// Check if macspeech binary exists
+	const macspeechPath = getMacSpeechBinaryPath();
+	if (!fs.existsSync(macspeechPath)) {
+		callbacks.onError(`Mac Speech binary not found at ${macspeechPath}. Run: swiftc -O -o scripts/macspeech scripts/macspeech.swift`);
+		return null;
+	}
+
+	// Map language code to macOS locale
+	const locale = mapLanguageToLocale(config.language);
+
+	// Start the macspeech binary in record mode
+	// It will record using AVAudioEngine until we send a newline to stdin
+	const recProc = spawn(macspeechPath, [
+		"--record",
+		"--locale", locale,
+	], { stdio: ["pipe", "pipe", "pipe"] });
+
+	let stdout = "";
+	let stderr = "";
+
+	recProc.stdout?.on("data", (d: Buffer) => {
+		stdout += d.toString();
+	});
+
+	recProc.stderr?.on("data", (d: Buffer) => {
+		stderr += d.toString();
+		voiceDebug("macspeech stderr:", d.toString().trim());
+	});
+
+	const session: MacSpeechSession = {
+		recProcess: recProc,
+		tempAudioPath: "", // Not used - Swift handles temp file internally
+		closed: false,
+		hadAudioData: false,
+		onDone: callbacks.onDone,
+		onError: callbacks.onError,
+	};
+
+	recProc.on("error", (err) => {
+		voiceDebug("macspeech process error:", err.message);
+		if (!session.closed) {
+			session.closed = true;
+			callbacks.onError(`Mac Speech error: ${err.message}`);
+		}
+	});
+
+	recProc.on("close", (code) => {
+		if (session.closed) return; // Already handled
+		session.closed = true;
+
+		voiceDebug("macspeech process closed", { code, stdout: stdout.slice(0, 200), stderr: stderr.slice(0, 200) });
+
+		try {
+			const result = JSON.parse(stdout.trim());
+			if (result.error) {
+				session.onError(result.error);
+			} else {
+				const text = result.text || "";
+				session.onDone(text, {
+					hadAudio: true,
+					hadSpeech: text.trim().length > 0,
+				});
+			}
+		} catch (e) {
+			voiceDebug("macspeech JSON parse error", { error: String(e), stdout });
+			if (stdout.trim()) {
+				session.onError(`Transcription failed: ${stdout}`);
+			} else if (stderr.trim()) {
+				session.onError(`Transcription failed: ${stderr}`);
+			} else {
+				session.onError("Transcription failed: no output");
+			}
+		}
+	});
+
+	// Signal that recording has started
+	callbacks.onRecording();
+
+	return session;
+}
+
+function stopMacSpeechSession(session: MacSpeechSession, _config: VoiceConfig): void {
+	if (session.closed) return;
+	// Don't set closed=true here - let the 'close' event handler do it
+	// after processing the transcription result
+
+	voiceDebug("stopMacSpeechSession → sending stop signal to macspeech");
+
+	// Send newline to stdin to signal the Swift process to stop recording and transcribe
+	// The process will output JSON and exit, triggering the 'close' handler
+	try {
+		session.recProcess.stdin?.write("\n");
+		session.recProcess.stdin?.end();
+	} catch (e) {
+		voiceDebug("stopMacSpeechSession → failed to send stop signal", { error: String(e) });
+		// Force kill if stdin write fails
+		try { session.recProcess.kill("SIGTERM"); } catch {}
+	}
+}
+
+function mapLanguageToLocale(language: string): string {
+	// Map pi-listen language codes to macOS locale identifiers
+	const localeMap: Record<string, string> = {
+		"en": "en-US",
+		"en-US": "en-US",
+		"en-GB": "en-GB",
+		"en-AU": "en-AU",
+		"ja": "ja-JP",
+		"ja-JP": "ja-JP",
+		"zh": "zh-CN",
+		"zh-CN": "zh-CN",
+		"zh-TW": "zh-TW",
+		"ko": "ko-KR",
+		"ko-KR": "ko-KR",
+		"de": "de-DE",
+		"de-DE": "de-DE",
+		"fr": "fr-FR",
+		"fr-FR": "fr-FR",
+		"es": "es-ES",
+		"es-ES": "es-ES",
+		"it": "it-IT",
+		"it-IT": "it-IT",
+		"pt": "pt-BR",
+		"pt-BR": "pt-BR",
+		"ru": "ru-RU",
+		"ru-RU": "ru-RU",
+	};
+	return localeMap[language] || language;
+}
+
+function abortMacSpeechSession(session: MacSpeechSession | null): void {
+	if (!session || session.closed) return;
+	session.closed = true;
+	try { session.recProcess.kill("SIGKILL"); } catch {}
+	// No temp file cleanup needed - Swift binary handles its own temp files
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -541,12 +704,15 @@ export default function (pi: ExtensionAPI) {
 	let statusTimer: ReturnType<typeof setInterval> | null = null;
 	let terminalInputUnsub: (() => void) | null = null;
 
-	// Streaming session state
+	// Streaming session state (Deepgram)
 	let activeSession: StreamingSession | null = null;
 	let preRecordingSession: StreamingSession | null = null;  // Started during warmup, promoted on confirm
 
 	let lastStopTime = 0;    // For Escape-to-clear-editor within 30s of recording
-	let lastEscapeTime = 0;  // For double-escape to clear editor
+  let lastEscapeTime = 0;  // For double-escape to clear editor
+
+ 	let activeMacSpeechSession: MacSpeechSession | null = null;
+
 	let recordingStartedAt = 0; // When recording actually started (for grace period)
 	let editorTextBeforeVoice = ""; // Snapshot of editor text before recording started
 
@@ -883,6 +1049,8 @@ export default function (pi: ExtensionAPI) {
 		if (voiceState === "finalizing" || voiceState === "recording") {
 			abortSession(activeSession);
 			activeSession = null;
+			abortMacSpeechSession(activeMacSpeechSession);
+			activeMacSpeechSession = null;
 			clearRecordingAnimTimer();
 			clearWarmupWidget();
 			hideWidget();
@@ -946,8 +1114,13 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function startStreamingRecording(): Promise<boolean> {
-		voiceDebug("startStreamingRecording called", { hasKey: !!resolveDeepgramApiKey(config), hasPreRecording: !!preRecordingSession });
+		voiceDebug("startStreamingRecording called", { backend: config.backend, hasKey: !!resolveDeepgramApiKey(config), hasPreRecording: !!preRecordingSession });
 		setVoiceState("recording");
+
+		// Route based on backend
+		if (config.backend === "macspeech") {
+			return startMacSpeechRecordingSession();
+		}
 
 		// ── Callbacks for the active recording session ──
 		const recordingCallbacks = {
@@ -1062,6 +1235,106 @@ export default function (pi: ExtensionAPI) {
 		return true;
 	}
 
+	// ── Mac Speech Recording (local, final-only) ──
+	function startMacSpeechRecordingSession(): boolean {
+		voiceDebug("startMacSpeechRecordingSession called");
+
+		const macSpeechCallbacks = {
+			onRecording: () => {
+				voiceDebug("Mac Speech recording started");
+				recordingStartedAt = Date.now();
+			},
+			onDone: (fullText: string, meta: { hadAudio: boolean; hadSpeech: boolean }) => {
+				voiceDebug("Mac Speech onDone", { fullText: fullText.slice(0, 100), meta });
+				activeMacSpeechSession = null;
+				clearRecordingAnimTimer();
+				if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+				lastStopTime = Date.now();
+
+				if (!fullText.trim()) {
+					hideWidget();
+					playSound("error");
+					resetHoldState({ cooldown: 3000 });
+					if (!meta.hadAudio) {
+						ctx?.ui.notify("Microphone captured no audio. Check mic permissions.", "error");
+					} else if (!meta.hadSpeech) {
+						ctx?.ui.notify("No speech detected.", "warning");
+					} else {
+						ctx?.ui.notify("No speech detected.", "warning");
+					}
+					setVoiceState("idle");
+					return;
+				}
+
+				hideWidget();
+
+				if (ctx?.hasUI) {
+					// Check for voice commands
+					const cmd = detectVoiceCommand(fullText);
+					if (cmd.isCommand && cmd.action) {
+						executeVoiceCommand(cmd.action);
+						playSound("stop");
+						addToHistory(fullText, (Date.now() - recordingStart) / 1000);
+						setVoiceState("idle");
+						return;
+					}
+
+					// Process voice shortcuts
+					const processedText = processVoiceShortcuts(fullText);
+
+					// Set final text in editor
+					const prefix = editorTextBeforeVoice ? editorTextBeforeVoice + " " : "";
+					ctx.ui.setEditorText(prefix + processedText);
+
+					const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+					addToHistory(fullText, parseFloat(elapsed));
+				}
+				playSound("stop");
+				resetHoldState();
+				setVoiceState("idle");
+			},
+			onError: (err: string) => {
+				activeMacSpeechSession = null;
+				clearRecordingAnimTimer();
+				if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+				hideWidget();
+
+				resetHoldState({ cooldown: 5000 });
+				clearWarmupWidget();
+
+				ctx?.ui.notify(`Voice error: ${err}`, "error");
+				playSound("error");
+				setVoiceState("idle");
+			},
+		};
+
+		const session = startMacSpeechSession(config, macSpeechCallbacks);
+
+		if (!session) {
+			resetHoldState();
+			setVoiceState("idle");
+			return false;
+		}
+
+		activeMacSpeechSession = session;
+
+		// Status timer for elapsed time
+		statusTimer = setInterval(() => {
+			if (voiceState === "recording") {
+				updateVoiceStatus();
+				const elapsed = (Date.now() - recordingStart) / 1000;
+				if (elapsed >= MAX_RECORDING_SECS) {
+					stopVoiceRecording();
+				}
+			}
+		}, 1000);
+
+		showRecordingWidget();
+		playSound("start");
+		recordingStartedAt = Date.now();
+		return true;
+	}
+
 	// ── Tail recording: keep capturing for 1.5s after space release ──
 	function scheduleDelayedStop() {
 		cancelDelayedStop(); // Clear any existing timer
@@ -1083,15 +1356,25 @@ export default function (pi: ExtensionAPI) {
 
 	async function stopVoiceRecording() {
 		cancelDelayedStop(); // Safety: clear any pending delayed stop
-		voiceDebug("stopVoiceRecording called", { voiceState, hasActiveSession: !!activeSession });
+		voiceDebug("stopVoiceRecording called", { voiceState, hasActiveSession: !!activeSession, hasMacSpeechSession: !!activeMacSpeechSession });
 		if (voiceState !== "recording" || !ctx) return;
 		if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
 
 		if (activeSession) {
+			// Deepgram streaming session
 			setVoiceState("finalizing");
 			clearRecordingAnimTimer();
 			hideWidget();
 			stopStreamingSession(activeSession);
+		} else if (activeMacSpeechSession) {
+			// Mac Speech session - show "Processing..." while transcribing
+			setVoiceState("finalizing");
+			clearRecordingAnimTimer();
+			// Show processing indicator
+			if (ctx?.hasUI) {
+				ctx.ui.notify("Processing speech...", "info");
+			}
+			stopMacSpeechSession(activeMacSpeechSession, config);
 		} else {
 			// No active session — shouldn't happen, but recover gracefully
 			voiceDebug("stopVoiceRecording: no active session, resetting to idle");
@@ -1757,8 +2040,14 @@ export default function (pi: ExtensionAPI) {
 				config.enabled = true;
 				updateVoiceStatus();
 				setupHoldToTalk();
+				const backendMsg = config.backend === "macspeech"
+					? "Voice enabled (macOS Speech, local)."
+					: "Voice enabled (Deepgram streaming).";
+				const liveNote = config.backend === "macspeech"
+					? "  Transcription shown after release (final-only)"
+					: "  Live transcription shown while speaking";
 				cmdCtx.ui.notify([
-					"Voice enabled (Deepgram streaming).",
+					backendMsg,
 					"",
 					"  Hold SPACE → release to transcribe",
 					"  Ctrl+Shift+V → toggle recording on/off",
@@ -1947,7 +2236,7 @@ export default function (pi: ExtensionAPI) {
 					lines.push("    apt install sox        # Linux");
 					lines.push("    apt install ffmpeg     # Linux (alternative)");
 					lines.push("    choco install sox      # Windows");
-				} else {
+					} else {
 					lines.push("  All checks passed — voice is ready!");
 					lines.push("  Hold SPACE to record, or use Ctrl+Shift+V to toggle.");
 				}
@@ -1980,18 +2269,21 @@ export default function (pi: ExtensionAPI) {
 
 			if (sub === "info") {
 				const dgKey = resolveDeepgramApiKey(config);
+				const backendInfo = config.backend === "macspeech"
+					? "macspeech (local macOS, final-only)"
+					: "deepgram (cloud streaming)";
 				cmdCtx.ui.notify([
 					`Voice config:`,
 					`  enabled:    ${config.enabled}`,
 					`  scope:      ${config.scope}`,
+					`  backend:    ${backendInfo}`,
 					`  language:   ${config.language}`,
-					`  streaming:  YES (Deepgram WebSocket)`,
-					`  api key:    ${dgKey ? "set (" + dgKey.slice(0, 8) + "…)" : "NOT SET"}`,
+					config.backend === "deepgram" ? `  api key:    ${dgKey ? "set (" + dgKey.slice(0, 8) + "…)" : "NOT SET"}` : null,
 					`  state:      ${voiceState}`,
 					`  setup:      ${config.onboarding.completed ? `complete (${config.onboarding.source ?? "unknown"})` : "incomplete"}`,
 					`  hold-key:   SPACE (hold ≥${HOLD_THRESHOLD_MS}ms) or Ctrl+Shift+V (toggle)`,
 					`  kitty:      ${kittyReleaseDetected ? "yes" : "no"}`,
-				].join("\n"), "info");
+				].filter(Boolean).join("\n"), "info");
 				return;
 			}
 

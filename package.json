@@ -53,5 +53,8 @@
     "README.md",
     "LICENSE",
     "package.json"
-  ]
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

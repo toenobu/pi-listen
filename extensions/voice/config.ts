@@ -11,6 +11,7 @@ export const VOICE_CONFIG_VERSION = 2;
 
 export type VoiceSettingsScope = "global" | "project";
 export type VoiceConfigSource = VoiceSettingsScope | "default";
+export type VoiceBackend = "deepgram" | "macspeech";
 
 export interface VoiceOnboardingState {
 	completed: boolean;
@@ -27,6 +28,8 @@ export interface VoiceConfig {
 	language: string;
 	scope: VoiceSettingsScope;
 	onboarding: VoiceOnboardingState;
+	/** Speech-to-text backend: "deepgram" (cloud streaming) or "macspeech" (local macOS) */
+	backend: VoiceBackend;
 	/** Deepgram API key — stored in config so it's available even when env var isn't set */
 	deepgramApiKey?: string;
 }
@@ -47,6 +50,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 	enabled: true,
 	language: "en",
 	scope: "global",
+	backend: "deepgram",
 	deepgramApiKey: undefined,
 	onboarding: {
 		completed: false,
@@ -94,11 +98,18 @@ function migrateConfig(rawVoice: any, source: VoiceConfigSource): VoiceConfig {
 		rawVoice.onboarding?.completed === true;
 	const fallbackCompleted = hasMeaningfulLegacySetup;
 
+	// Validate backend value
+	const validBackends: VoiceBackend[] = ["deepgram", "macspeech"];
+	const backend: VoiceBackend = validBackends.includes(rawVoice.backend) 
+		? rawVoice.backend 
+		: DEFAULT_CONFIG.backend;
+
 	return {
 		version: VOICE_CONFIG_VERSION,
 		enabled: typeof rawVoice.enabled === "boolean" ? rawVoice.enabled : DEFAULT_CONFIG.enabled,
 		language: typeof rawVoice.language === "string" ? rawVoice.language : DEFAULT_CONFIG.language,
 		scope: (rawVoice.scope as VoiceSettingsScope | undefined) ?? (source === "project" ? "project" : "global"),
+		backend,
 		deepgramApiKey: typeof rawVoice.deepgramApiKey === "string" ? rawVoice.deepgramApiKey : undefined,
 		onboarding: normalizeOnboarding(rawVoice.onboarding, fallbackCompleted),
 	};

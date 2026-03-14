@@ -5,6 +5,7 @@
 </p>
 
 **Hold-to-talk voice input for [Pi](https://github.com/mariozechner/pi-coding-agent).**
+**Voice input for [Pi](https://github.com/mariozechner/pi-coding-agent) — hold SPACE to talk, with Deepgram streaming or local macOS Speech Recognition.**
 
 [![npm version](https://img.shields.io/npm/v/@codexstar/pi-listen.svg)](https://www.npmjs.com/package/@codexstar/pi-listen)
 [![npm downloads](https://img.shields.io/npm/dm/@codexstar/pi-listen.svg)](https://www.npmjs.com/package/@codexstar/pi-listen)
@@ -15,6 +16,27 @@
 ## Setup (2 minutes)
 
 ### 1. Install the extension
+pi-listen adds hands-free voice input to the [Pi coding agent](https://github.com/mariozechner/pi-coding-agent) CLI. Hold SPACE to record, release to transcribe directly into the editor with live streaming results.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Hold-to-talk** | Hold `SPACE` → record → release → live transcript in editor |
+| **Dual backends** | Deepgram (cloud streaming) or macOS Speech (local, offline) |
+| **Deepgram streaming** | Real-time WebSocket STT with Nova-3 (interim + final results) |
+| **macOS Speech** | Local transcription using Apple's Speech framework (63 languages) |
+| **Voice commands** | "Hey Pi, run tests" → auto-executes |
+| **Voice shortcuts** | "new line", "period", "submit" → inline text expansion |
+| **Continuous dictation** | `/voice dictate` — speak freely, no hold required |
+| **Recording history** | `/voice history` — recent transcriptions |
+| **Kitty protocol** | True key-release detection on supported terminals |
+
+---
+
+## Quick Start
+
+### Install
 
 ```bash
 # In a regular terminal (not inside Pi)
@@ -23,7 +45,14 @@ pi install npm:@codexstar/pi-listen
 
 ### 2. Get a Deepgram API key
 
-Sign up at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) — $200 free credit, no card needed.
+**For macOS Speech backend (no external dependencies):**
+```bash
+# Just compile the Swift binary (one-time)
+cd ~/.pi/extensions/npm/@codexstar/pi-listen
+swiftc -O -o scripts/macspeech scripts/macspeech.swift
+```
+
+### Bootstrap Script (zero-touch)
 
 ```bash
 export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc or ~/.bashrc
@@ -174,10 +203,40 @@ Settings in Pi's settings files under the `voice` key:
     "enabled": true,
     "language": "en",
     "scope": "global",
-    "onboarding": { "completed": true, "schemaVersion": 2 }
+    "backend": "deepgram",
+    "deepgramApiKey": "...",
+    "onboarding": {
+      "completed": true,
+      "schemaVersion": 2,
+      "completedAt": "2026-03-13T00:00:00.000Z",
+      "source": "setup-command"
+    }
+}
+```
+
+### Backend Options
+
+| Backend | Value | Description |
+|---------|-------|-------------|
+| **Deepgram** | `"deepgram"` | Cloud streaming STT with live preview (default) |
+| **macOS Speech** | `"macspeech"` | Local macOS Speech Recognition (offline, final-only) |
+
+To switch backends, edit `~/.pi/agent/settings.json`:
+
+```json
+{
+  "voice": {
+    "backend": "macspeech"
   }
 }
 ```
+
+**macOS Speech notes:**
+- Requires macOS 10.15+ with Speech Recognition permissions
+- Supports 63 languages (run `./scripts/macspeech --list-locales`)
+- Final-only transcription (no live preview during recording)
+- Works offline after first use (models cached locally)
+- No API key required
 
 ---
 
@@ -204,7 +263,6 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 - **API key** — stored in env var or Pi settings, never logged or exposed in errors
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
 ---
 
 ## License
