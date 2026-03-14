@@ -1,11 +1,11 @@
-# pi-voice — Full Context for LLMs
+# pi-listen — Full Context for LLMs
 
-> Complete documentation for AI assistants working with the pi-voice codebase.
+> Complete documentation for AI assistants working with the pi-listen codebase.
 
 ## Package Identity
 
-- **Name:** @codexstar/pi-voice
-- **npm:** https://www.npmjs.com/package/@codexstar/pi-voice
+- **Name:** @codexstar/pi-listen
+- **npm:** https://www.npmjs.com/package/@codexstar/pi-listen
 - **GitHub:** https://github.com/codexstar69/pi-listen
 - **License:** MIT
 - **Type:** Pi coding agent extension (pi-package)
@@ -14,18 +14,18 @@
 
 ---
 
-## What pi-voice Does
+## What pi-listen Does
 
-pi-voice adds hold-to-talk voice input to the Pi coding agent CLI:
-
-1. **Hold-to-talk:** User holds SPACE → SoX captures audio → streams to Deepgram via WebSocket → interim transcripts appear in editor in real time → release to finalize.
-2. **Voice commands:** Detected phrases like "hey pi, run tests" or "undo" are executed as actions instead of being typed.
-3. **Continuous dictation:** `/voice dictate` mode for long-form speaking without holding keys.
-4. **Double-escape clear:** Two escape presses within 500ms clears the editor text.
-5. **Zero-config start:** If `DEEPGRAM_API_KEY` is in the environment, pi-voice auto-activates on first launch with a keybinding guide. No wizard needed.
-6. **Full diagnostics:** `/voice test` validates SoX, mic capture, and the Deepgram API key against the live API in one command.
-7. **First-run hint:** Shows a one-time notification on first session explaining how to get started.
-8. **Cross-platform:** Kitty keyboard protocol for modern terminals, gap-based fallback for legacy terminals. macOS, Windows, Linux.
+1. **Pre-recording:** Audio capture starts during the warmup countdown — the user never misses the first word.
+2. **Hold-to-talk:** User holds SPACE → SoX streams audio to Deepgram → interim transcripts appear in editor in real time → release to finalize.
+3. **Tail recording:** Recording continues 1.5s after release so the last word isn't clipped.
+4. **Voice commands:** "hey pi, run tests", "undo", "submit" are executed as actions.
+5. **Continuous dictation:** `/voice dictate` for long-form speaking without holding keys.
+6. **Double-escape clear:** Two Escape presses within 500ms clears the editor.
+7. **Zero-config start:** Auto-activates if `DEEPGRAM_API_KEY` is set. First-run hint with signup link if not.
+8. **API validation:** `/voice test` validates SoX, mic capture, and Deepgram key against the live API.
+9. **Reactive waveform:** Audio-level-driven animation with fast attack / slow decay smoothing.
+10. **Cross-platform:** Kitty protocol + non-Kitty gap-based fallback. macOS, Windows, Linux.
 
 ---
 
@@ -33,9 +33,11 @@ pi-voice adds hold-to-talk voice input to the Pi coding agent CLI:
 
 ```
 Pi CLI (Node.js)
-  └── extensions/voice.ts (main extension, ~1900 lines)
-        ├── extensions/voice/config.ts (settings management, ~170 lines)
-        └── extensions/voice/onboarding.ts (setup wizard, ~160 lines)
+  └── extensions/voice.ts (~1950 lines)
+        ├── extensions/voice/config.ts (~170 lines)
+        ├── extensions/voice/onboarding.ts (~160 lines)
+        ├── extensions/voice/deepgram.ts (~30 lines)
+        └── extensions/voice/text-processing.ts (~100 lines)
         │
         │ WebSocket (streaming PCM audio)
         ▼
@@ -51,17 +53,17 @@ idle → warmup → recording → finalizing → idle
 ```
 
 - **idle:** Waiting for space hold
-- **warmup:** Space held, countdown widget shown, waiting for threshold (800ms)
-- **recording:** SoX capturing audio, streaming to Deepgram, live transcripts in editor
-- **finalizing:** CloseStream sent, waiting for final transcript from Deepgram
+- **warmup:** Space held, countdown shown, pre-recording active (audio already streaming to Deepgram)
+- **recording:** Live transcripts updating editor, waveform animation
+- **finalizing:** Tail recording (1.5s) + CloseStream sent, waiting for final transcript
 
-### Hold Detection (Two Modes)
+### Hold Detection
 
 **A) Kitty protocol** (Ghostty, Kitty, WezTerm, Windows Terminal 1.22+):
-True key-down/repeat/release events. First press enters warmup immediately. Release cancels (tap) or stops recording (hold).
+True key events. First press → warmup + pre-recording. Release → tail recording → stop.
 
-**B) Non-Kitty** (macOS Terminal, Ghostty on macOS, older terminals):
-No release events. Holding sends rapid press events (~30-90ms apart). Algorithm counts rapid presses to confirm hold (REPEAT_CONFIRM_COUNT=3), then waits for gap (RELEASE_DETECT_MS=500ms) to detect release.
+**B) Non-Kitty** (macOS Terminal, older terminals):
+Gap-based. Counts rapid presses to confirm hold (REPEAT_CONFIRM_COUNT=3). Gap = released.
 
 ---
 
@@ -69,72 +71,11 @@ No release events. Holding sends rapid press events (~30-90ms apart). Algorithm 
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `extensions/voice.ts` | ~1970 | Main extension: SoX recording, Deepgram WebSocket streaming, hold-to-talk state machine (Kitty + non-Kitty), voice command detection, warmup/recording widgets, live transcript display, double-escape editor clear, first-run welcome hint, API key validation, `/voice` command suite |
-| `extensions/voice/config.ts` | ~170 | VoiceConfig type, loading from global/project settings, schema migration, onboarding state |
-| `extensions/voice/onboarding.ts` | ~160 | Interactive first-run setup wizard — Deepgram API key entry, scope selection |
-
----
-
-## Configuration Schema
-
-```typescript
-interface VoiceConfig {
-  version: 2;
-  enabled: boolean;
-  language: string;          // e.g., "en"
-  scope: "global" | "project";
-  deepgramApiKey?: string;   // Optional — falls back to DEEPGRAM_API_KEY env var
-  onboarding: {
-    completed: boolean;
-    schemaVersion: number;
-    completedAt?: string;
-    source?: "first-run" | "setup-command" | "migration" | "repair";
-    skippedAt?: string;      // Suppresses prompt for 24h
-  };
-}
-```
-
----
-
-## Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| `/voice` | Toggle voice on/off |
-| `/voice on` | Enable voice |
-| `/voice off` | Disable voice |
-| `/voice setup` | Run onboarding wizard |
-| `/voice test` | Test microphone + Deepgram pipeline |
-| `/voice info` | Show config + status |
-| `/voice dictate` | Continuous dictation (no key hold needed) |
-| `/voice stop` | Stop active recording or dictation |
-| `/voice history` | Show recent transcriptions |
-
----
-
-## Keybindings
-
-| Key | Action |
-|-----|--------|
-| `SPACE` (hold ≥800ms) | Record → stream → transcribe into editor |
-| `Ctrl+Shift+V` | Toggle recording on/off (any terminal) |
-| `Escape` × 2 (within 500ms) | Clear editor text |
-
----
-
-## Voice Commands
-
-Detected phrases spoken during recording:
-
-| Trigger | Action |
-|---------|--------|
-| "hey pi, run tests" | Inserts `bun run test` |
-| "hey pi, <anything>" | Sends as message to agent |
-| "undo" / "undo that" | Removes last word from editor |
-| "clear" / "clear all" | Clears editor |
-| "submit" / "send" / "send it" | Submits editor content |
-| "new line" | Inserts newline |
-| "period" / "comma" / "question mark" | Inserts punctuation |
+| `extensions/voice.ts` | ~1950 | Main: SoX recording, Deepgram WebSocket, pre-recording, tail recording, hold-to-talk state machine, voice commands, waveform widget, double-escape, first-run hint, `/voice` commands |
+| `extensions/voice/config.ts` | ~170 | VoiceConfig type, load/save, schema migration, onboarding state |
+| `extensions/voice/onboarding.ts` | ~160 | Setup wizard — Deepgram key entry, scope selection |
+| `extensions/voice/deepgram.ts` | ~30 | WebSocket URL builder, API key resolver |
+| `extensions/voice/text-processing.ts` | ~100 | Voice command detection, punctuation shortcuts |
 
 ---
 
@@ -142,27 +83,80 @@ Detected phrases spoken during recording:
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `HOLD_THRESHOLD_MS` | 800 | Min hold duration before recording starts |
+| `HOLD_THRESHOLD_MS` | 800 | Min hold before recording activates |
+| `TAIL_RECORDING_MS` | 1500 | Keep recording after space release |
 | `RELEASE_DETECT_MS` | 500 | Gap that means "released" (non-Kitty) |
-| `REPEAT_CONFIRM_COUNT` | 3 | Rapid presses to confirm hold (non-Kitty) |
-| `RECORDING_GRACE_MS` | 600 | Ignore release detection right after recording starts |
-| `TYPING_COOLDOWN_MS` | 400 | If non-space key was recent, space passes through |
+| `REPEAT_CONFIRM_COUNT` | 3 | Rapid presses to confirm hold |
+| `RECORDING_GRACE_MS` | 600 | Ignore release right after recording starts |
 | `MAX_RECORDING_SECS` | 120 | Auto-stop safety cap |
 
 ---
 
-## Prerequisites
+## Commands
 
-- **SoX** (`rec` command) — microphone capture
-- **Deepgram API key** — `DEEPGRAM_API_KEY` env var or stored in config
+| Command | Description |
+|---------|-------------|
+| `/voice-setup` | Interactive setup wizard |
+| `/voice test` | Full diagnostics — SoX, mic, API key validation |
+| `/voice` | Toggle on/off |
+| `/voice on` / `off` | Enable / disable |
+| `/voice dictate` | Continuous dictation |
+| `/voice stop` | Stop recording or dictation |
+| `/voice info` | Config + status |
+| `/voice history` | Recent transcriptions |
+
+## Keybindings
+
+| Key | Action |
+|-----|--------|
+| `SPACE` (hold ≥800ms) | Record with pre-recording + tail recording |
+| `Ctrl+Shift+V` | Toggle recording |
+| `Escape` × 2 | Clear editor |
+
+## Voice Commands
+
+| Trigger | Action |
+|---------|--------|
+| "hey pi, run tests" | Inserts `bun run test` |
+| "hey pi, ..." | Sends message to agent |
+| "undo" | Removes last word |
+| "clear" | Clears editor |
+| "submit" / "send it" | Submits |
+| "new line" / "period" / "comma" | Inserts character |
 
 ---
+
+## Configuration
+
+```typescript
+interface VoiceConfig {
+  version: 2;
+  enabled: boolean;
+  language: string;
+  scope: "global" | "project";
+  deepgramApiKey?: string;
+  onboarding: {
+    completed: boolean;
+    schemaVersion: number;
+    completedAt?: string;
+    source?: "first-run" | "setup-command" | "migration";
+    skippedAt?: string;
+  };
+}
+```
+
+---
+
+## Setup
+
+```bash
+command pi install npm:@codexstar/pi-listen   # Install extension
+brew install sox                               # Microphone capture
+export DEEPGRAM_API_KEY="your-key"            # https://dpgr.am/pi-voice
+```
 
 ## Development
 
 ```bash
-bun install           # Install dependencies
-bun run test          # Run tests
-bun run typecheck     # TypeScript check
-bun run check         # Full: typecheck + test
+bun install && bun run typecheck && bun run test
 ```

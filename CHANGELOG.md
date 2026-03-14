@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.3] - 2026-03-14
+
+### Added
+- **Pre-recording** — audio capture starts during warmup countdown, never miss the first word
+- **Tail recording** — keeps recording 1.5s after release so your last word isn't clipped
+- **Reactive waveform** — audio-level-driven animation with fast attack / slow decay, 12-bar center-emphasis display
+- **Deepgram API key validation** — `/voice test` validates key against live API
+- **First-run welcome hint** — shows Deepgram signup link and setup instructions on first launch
+- **Auto-activation** — if `DEEPGRAM_API_KEY` is set, voice activates without running setup
+- **Double-escape editor clear** — press Escape twice within 500ms to clear text
+- **Kitty escape guard** — filters release/repeat events for cross-platform reliability
+
 ## [3.0.2] - 2026-03-14
 
 ### Added

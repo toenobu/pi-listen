@@ -1,137 +1,156 @@
-# pi-voice
+# pi-listen
 
 <p align="center">
-  <img src="assets/banner.png" alt="pi-voice — Voice input for the Pi coding agent" width="100%" />
+  <img src="assets/banner.png" alt="pi-listen — Voice input for the Pi coding agent" width="100%" />
 </p>
 
 **Hold-to-talk voice input for [Pi](https://github.com/mariozechner/pi-coding-agent).**
 
-[![npm version](https://img.shields.io/npm/v/@codexstar/pi-voice.svg)](https://www.npmjs.com/package/@codexstar/pi-voice)
-[![license](https://img.shields.io/npm/l/@codexstar/pi-voice.svg)](https://github.com/codexstar69/pi-listen/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@codexstar/pi-listen.svg)](https://www.npmjs.com/package/@codexstar/pi-listen)
+[![license](https://img.shields.io/npm/l/@codexstar/pi-listen.svg)](https://github.com/codexstar69/pi-listen/blob/main/LICENSE)
 
 ---
 
-## What It Does
+## Setup (2 minutes)
 
-pi-voice adds hands-free voice input to the Pi coding agent CLI. Hold `SPACE` to record, release to transcribe — text appears in the editor in real time via Deepgram streaming STT.
-
-### Features
-
-| Feature | Description |
-|---------|-------------|
-| **Hold-to-talk** | Hold `SPACE` to record, release to stop — text streams into the editor live |
-| **Streaming transcription** | Deepgram Nova 3 WebSocket — interim results appear as you speak |
-| **Voice commands** | "hey pi, run tests", "undo", "submit", "new line", "period" |
-| **Continuous dictation** | `/voice dictate` for long-form speaking without holding keys |
-| **Double-escape clear** | Press `Escape` twice to clear the editor |
-| **Zero-config start** | Auto-activates if `DEEPGRAM_API_KEY` is set — no wizard needed |
-| **Full diagnostics** | `/voice test` validates SoX, mic capture, and Deepgram API key in one command |
-| **Cross-platform** | macOS, Windows, Linux — Kitty protocol + non-Kitty fallback |
-
----
-
-## Install
+### 1. Install the extension
 
 ```bash
-pi install npm:@codexstar/pi-voice
+# In a regular terminal (not inside Pi)
+command pi install npm:@codexstar/pi-listen
 ```
 
-### Prerequisites
-
-- **SoX** — microphone recording (`brew install sox` / `apt install sox` / `choco install sox`)
-- **Deepgram API key** — set `DEEPGRAM_API_KEY` env var ([get $200 free credit](https://dpgr.am/pi-voice))
-
-### Quick Setup
+### 2. Install SoX (microphone capture)
 
 ```bash
-brew install sox                           # macOS
-export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc
+brew install sox          # macOS
+sudo apt install sox      # Ubuntu/Debian
+choco install sox         # Windows
 ```
 
-Then open Pi — if `DEEPGRAM_API_KEY` is in your environment, pi-voice auto-activates and shows a keybinding guide. No wizard needed.
+### 3. Get a Deepgram API key
 
-If the key isn't set yet, you'll see a one-time hint pointing you to `/voice setup`.
+Sign up at [dpgr.am/pi-voice](https://dpgr.am/pi-voice) — $200 free credit, no card needed.
+
+```bash
+export DEEPGRAM_API_KEY="your-key-here"    # add to ~/.zshrc or ~/.bashrc
+```
+
+### 4. Open Pi
+
+If `DEEPGRAM_API_KEY` is set, voice auto-activates with a keybinding guide. Otherwise run `/voice-setup` inside Pi to paste your key interactively.
+
+### Verify everything works
+
+```bash
+/voice test    # Inside Pi — checks SoX, mic, and validates API key
+```
 
 ---
 
 ## Usage
 
-### Voice Input
+### Keybindings
 
-| Action | Keybinding | Notes |
-|--------|-----------|-------|
-| Record to editor | Hold `SPACE` | Release to finalize transcription |
-| Toggle recording | `Ctrl+Shift+V` | Works in all terminals |
-| Clear editor | `Escape` × 2 | Double-tap within 500ms |
+| Action | Key | Notes |
+|--------|-----|-------|
+| **Record to editor** | Hold `SPACE` (≥800ms) | Release to finalize. Pre-records during warmup so you don't miss words. |
+| **Toggle recording** | `Ctrl+Shift+V` | Works in all terminals — press to start, press again to stop. |
+| **Clear editor** | `Escape` × 2 | Double-tap within 500ms to clear all text. |
+
+### How recording works
+
+1. **Hold SPACE** — warmup countdown appears, audio capture starts immediately (pre-recording)
+2. **Keep holding** — live transcription streams into the editor as you speak
+3. **Release SPACE** — recording continues for 1.5s (tail recording) to catch your last word, then finalizes
+4. Text appears in the editor, ready to send
 
 ### Commands
 
-```bash
-/voice              # Toggle voice on/off
-/voice on           # Enable voice
-/voice off          # Disable voice
-/voice setup        # Run onboarding wizard
-/voice test         # Test microphone + Deepgram pipeline
-/voice info         # Show current config and status
-/voice dictate      # Continuous dictation mode
-/voice stop         # Stop active recording or dictation
-/voice history      # Show recent transcriptions
-```
+| Command | Description |
+|---------|-------------|
+| `/voice-setup` | Interactive setup wizard (Deepgram key, scope) |
+| `/voice test` | Full diagnostics — SoX, mic capture, API key validation |
+| `/voice on` / `off` | Enable or disable voice |
+| `/voice dictate` | Continuous dictation (no key hold needed) |
+| `/voice stop` | Stop active recording or dictation |
+| `/voice info` | Show current config and status |
+| `/voice history` | Recent transcriptions |
+| `/voice` | Toggle on/off |
 
-### Voice Commands
+### Voice commands
 
-Say these during recording — they're detected and executed automatically:
+Say these during recording — detected and executed automatically:
 
-| Trigger | Action |
-|---------|--------|
+| Say this | Does this |
+|----------|-----------|
 | "hey pi, run tests" | Inserts `bun run test` |
+| "hey pi, ..." | Sends any message to the agent |
 | "undo" / "undo that" | Removes last word |
-| "clear" / "clear all" | Clears editor |
+| "clear" | Clears editor |
 | "submit" / "send it" | Submits editor content |
-| "new line" | Inserts `\n` |
+| "new line" | Inserts newline |
 | "period" / "comma" / "question mark" | Inserts punctuation |
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Pre-recording** | Audio capture starts during warmup countdown — you never miss the first word |
+| **Tail recording** | Keeps recording 1.5s after release so your last word isn't clipped |
+| **Live streaming** | Deepgram Nova 3 WebSocket — interim transcripts appear as you speak |
+| **Reactive waveform** | Audio-level-driven animation with fast attack / slow decay |
+| **Voice commands** | "hey pi, run tests", "undo", "submit", punctuation shortcuts |
+| **Continuous dictation** | `/voice dictate` for long-form input without holding keys |
+| **Double-escape clear** | Press Escape twice to clear the editor |
+| **Zero-config start** | Auto-activates if `DEEPGRAM_API_KEY` is set — no wizard needed |
+| **First-run hint** | Shows setup instructions with Deepgram signup link on first launch |
+| **API key validation** | `/voice test` validates your key against the live Deepgram API |
+| **Cross-platform** | macOS, Windows, Linux — Kitty protocol + non-Kitty fallback |
 
 ---
 
 ## How It Works
 
 ```
-User holds SPACE
-    ↓
-SoX captures PCM audio from microphone
-    ↓
-Audio streams to Deepgram Nova 3 via WebSocket
-    ↓
-Interim transcripts update editor in real time
-    ↓
-User releases SPACE → CloseStream → final transcript
+Hold SPACE → warmup countdown (pre-recording starts)
+                ↓ (≥800ms)
+         SoX captures PCM audio
+                ↓
+         Streams to Deepgram Nova 3 via WebSocket
+                ↓
+         Interim transcripts update editor in real time
+                ↓
+Release SPACE → tail recording (1.5s) → CloseStream → final transcript
 ```
 
-### Hold Detection
-
-Two terminal modes are supported:
+### Hold detection
 
 **Kitty protocol** (Ghostty, Kitty, WezTerm, Windows Terminal 1.22+):
-True key-down/repeat/release events. First press enters warmup immediately.
+True key-down/repeat/release events. First press enters warmup immediately. Release stops recording.
 
 **Non-Kitty** (macOS Terminal, older terminals):
-Gap-based detection. Counts rapid key-repeat events to distinguish hold from tap.
+Gap-based detection. Counts rapid key-repeat events to confirm hold. Gap in repeats = released.
 
-Both modes require holding for ≥800ms before recording activates. Quick taps type a normal space.
+Both modes: ≥800ms hold to activate. Quick taps type a normal space.
 
 ### Architecture
 
 ```
-extensions/voice.ts        Main extension — recording, UI, state machine
-extensions/voice/config.ts Config loading, saving, migration
-extensions/voice/onboarding.ts  First-run setup wizard
+extensions/voice.ts              Main extension — state machine, recording, UI
+extensions/voice/config.ts       Config loading, saving, migration
+extensions/voice/onboarding.ts   First-run setup wizard
+extensions/voice/deepgram.ts     Deepgram URL builder, API key resolver
+extensions/voice/text-processing.ts  Voice command detection, punctuation shortcuts
 ```
 
 ---
 
 ## Configuration
 
-Settings stored in Pi's settings files under the `voice` key:
+Settings in Pi's settings files under the `voice` key:
 
 | Scope | Path |
 |-------|------|
@@ -145,10 +164,7 @@ Settings stored in Pi's settings files under the `voice` key:
     "enabled": true,
     "language": "en",
     "scope": "global",
-    "onboarding": {
-      "completed": true,
-      "schemaVersion": 2
-    }
+    "onboarding": { "completed": true, "schemaVersion": 2 }
   }
 }
 ```
@@ -157,19 +173,15 @@ Settings stored in Pi's settings files under the `voice` key:
 
 ## Troubleshooting
 
-```bash
-/voice test     # Full diagnostics: SoX, mic capture, Deepgram API key validation
-```
-
-`/voice test` checks everything in one shot — SoX installation, microphone capture, and validates your Deepgram API key against the live API. It tells you exactly what's missing and how to fix it.
+Run `/voice test` inside Pi for full diagnostics. It checks SoX, mic capture, and validates your Deepgram API key against the live API.
 
 | Problem | Solution |
 |---------|----------|
-| "DEEPGRAM_API_KEY not set" | `export DEEPGRAM_API_KEY="your-key"` in `~/.zshrc` |
-| "INVALID KEY" | Check your key at [console.deepgram.com](https://console.deepgram.com) |
-| "SoX error" | `brew install sox` (macOS) / `apt install sox` (Linux) / `choco install sox` (Windows) |
-| Space doesn't activate | Check `/voice info` — voice may be disabled |
-| Double space in editor | Increase typing cooldown or use `Ctrl+Shift+V` |
+| "DEEPGRAM_API_KEY not set" | [Get a key](https://dpgr.am/pi-voice) → `export DEEPGRAM_API_KEY="..."` in `~/.zshrc` |
+| "INVALID KEY" | Check at [console.deepgram.com](https://console.deepgram.com) |
+| "SoX error" / "rec not found" | `brew install sox` / `apt install sox` / `choco install sox` |
+| Space doesn't activate voice | Run `/voice info` — voice may be disabled or onboarding incomplete |
+| Voice triggers in fuzzy search | Typing cooldown should prevent this — try `Ctrl+Shift+V` instead |
 
 See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 
@@ -177,9 +189,9 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more.
 
 ## Security
 
-- **Cloud STT:** Audio is sent to Deepgram for transcription. No local fallback.
-- **No telemetry:** pi-voice does not collect or transmit usage data.
-- **API key:** Stored in env var or Pi settings file — never logged or exposed in errors.
+- **Cloud STT** — audio is sent to Deepgram for transcription
+- **No telemetry** — pi-listen does not collect or transmit usage data
+- **API key** — stored in env var or Pi settings, never logged or exposed in errors
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
@@ -193,6 +205,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Links
 
-- **npm:** [npmjs.com/package/@codexstar/pi-voice](https://www.npmjs.com/package/@codexstar/pi-voice)
+- **npm:** [npmjs.com/package/@codexstar/pi-listen](https://www.npmjs.com/package/@codexstar/pi-listen)
 - **GitHub:** [github.com/codexstar69/pi-listen](https://github.com/codexstar69/pi-listen)
+- **Deepgram:** [dpgr.am/pi-voice](https://dpgr.am/pi-voice) ($200 free credit)
 - **Pi CLI:** [github.com/mariozechner/pi-coding-agent](https://github.com/mariozechner/pi-coding-agent)

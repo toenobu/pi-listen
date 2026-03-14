@@ -1,51 +1,48 @@
-# pi-voice
+# pi-listen
 
 > Hold-to-talk voice input for the Pi coding agent CLI.
 
 ## Overview
 
-pi-voice is a Pi extension that adds streaming voice-to-text input to the Pi coding agent. Hold SPACE to record, release to transcribe — text appears in the editor in real time via Deepgram Nova 3 WebSocket streaming. Auto-activates when DEEPGRAM_API_KEY is set — no wizard needed.
+pi-listen adds streaming voice-to-text input to Pi. Hold SPACE to record, release to transcribe — text appears in the editor in real time via Deepgram Nova 3 WebSocket streaming. Pre-records during warmup so you never miss the first word. Tail-records 1.5s after release so your last word isn't clipped.
 
-## Core Documentation
+## Setup
 
-- [README](https://github.com/codexstar69/pi-listen/blob/main/README.md): Installation, usage, architecture
-- [Troubleshooting](https://github.com/codexstar69/pi-listen/blob/main/docs/troubleshooting.md): Common issues and solutions
-- [Contributing](https://github.com/codexstar69/pi-listen/blob/main/CONTRIBUTING.md): Development setup and guidelines
-- [Security](https://github.com/codexstar69/pi-listen/blob/main/SECURITY.md): Security policy
+1. `command pi install npm:@codexstar/pi-listen` (outside Pi)
+2. `brew install sox` (or apt/choco)
+3. Get key at https://dpgr.am/pi-voice ($200 free credit)
+4. `export DEEPGRAM_API_KEY="your-key"` in ~/.zshrc
+5. Open Pi — auto-activates, or run `/voice-setup`
+
+## Documentation
+
+- [README](https://github.com/codexstar69/pi-listen/blob/main/README.md): Setup, usage, features
+- [Troubleshooting](https://github.com/codexstar69/pi-listen/blob/main/docs/troubleshooting.md): Common issues
 - [Changelog](https://github.com/codexstar69/pi-listen/blob/main/CHANGELOG.md): Release history
 - [License](https://github.com/codexstar69/pi-listen/blob/main/LICENSE): MIT
 
-## Key Components
+## Components
 
-- `extensions/voice.ts`: Main extension — hold-to-talk state machine, Deepgram streaming, voice commands, UI widgets, double-escape editor clear, first-run welcome hint
-- `extensions/voice/config.ts`: Configuration loading, saving, migration, onboarding state
-- `extensions/voice/onboarding.ts`: Interactive setup wizard (Deepgram API key entry)
-
-## Features
-
-- Hold-to-talk voice input (SPACE hold or Ctrl+Shift+V toggle)
-- Deepgram Nova 3 streaming STT with live interim transcripts
-- Voice commands: "hey pi, run tests", "undo", "submit", "new line", etc.
-- Continuous dictation mode (/voice dictate)
-- Double-escape clears editor text (cross-platform)
-- Zero-config auto-activation when DEEPGRAM_API_KEY is set
-- /voice test validates SoX, mic capture, and Deepgram API key against live API
-- First-run welcome hint with keybinding guide
-- Kitty protocol support + non-Kitty gap-based fallback
-- Cross-platform: macOS, Windows, Linux
-
-## Commands
-
-- `/voice [on|off|stop|dictate|history|test|info|setup]`
+- `extensions/voice.ts`: Main extension — hold-to-talk state machine, pre-recording, tail recording, Deepgram streaming, voice commands, waveform widget, double-escape editor clear
+- `extensions/voice/config.ts`: Config loading, saving, migration
+- `extensions/voice/onboarding.ts`: First-run setup wizard
+- `extensions/voice/deepgram.ts`: Deepgram URL builder, API key resolver
+- `extensions/voice/text-processing.ts`: Voice command detection, punctuation shortcuts
 
 ## Keybindings
 
-- `SPACE` (hold ≥800ms) — Record to editor
+- `SPACE` (hold ≥800ms) — Record to editor (pre-records during warmup)
 - `Ctrl+Shift+V` — Toggle recording
 - `Escape` × 2 — Clear editor text
+
+## Commands
+
+- `/voice-setup` — Interactive setup wizard
+- `/voice test` — Full diagnostics (SoX, mic, API key validation)
+- `/voice [on|off|dictate|stop|info|history]`
 
 ## Installation
 
 ```
-pi install npm:@codexstar/pi-voice
+command pi install npm:@codexstar/pi-listen
 ```
